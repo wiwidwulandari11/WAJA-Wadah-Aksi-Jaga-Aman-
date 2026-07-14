@@ -1,0 +1,1357 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAJA - Wadah Aksi Jaga Aman</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbar untuk tema terang */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.4; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        .sos-pulse::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 9999px;
+            background-color: #ef4444;
+            animation: pulse-ring 2s infinite;
+            z-index: -1;
+        }
+        /* Leaflet Map overrides agar serasi dengan clean light theme */
+        .leaflet-container {
+            background: #f8fafc !important;
+            outline: none;
+        }
+        .leaflet-bar {
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+        }
+        .leaflet-bar a {
+            background-color: #ffffff !important;
+            color: #334155 !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        .leaflet-bar a:hover {
+            background-color: #f8fafc !important;
+            color: #0f172a !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col overflow-x-hidden">
+
+    <!-- Custom Geolocation Permission Modal (Tampil Diawal) -->
+    <div id="consent-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-5 transform transition-all scale-100">
+            <div class="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+                <i data-lucide="map-pin" class="w-8 h-8"></i>
+            </div>
+            <div class="text-center space-y-2">
+                <h3 class="font-extrabold text-lg text-slate-900">Izinkan Akses Lokasi?</h3>
+                <p class="text-xs text-slate-500 leading-relaxed">Aplikasi WAJA membutuhkan akses lokasi agar tim medis dan instansi keselamatan dapat menemukan titik kejadian Anda secara instan dengan sekali ketuk.</p>
+            </div>
+            <div class="flex flex-col gap-2">
+                <button onclick="handleConsentDecision(true)" class="w-full py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-bold text-white transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2">
+                    <i data-lucide="locate-fixed" class="w-4 h-4"></i> Izinkan Akses Lokasi
+                </button>
+                <button onclick="handleConsentDecision(false)" class="w-full py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all">
+                    Tidak Diizinkan
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Toast Notification -->
+    <div id="waja-toast" class="fixed top-5 right-5 z-50 transform translate-x-full transition-transform duration-300 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-emerald-500/10">
+        <div id="toast-icon-bg" class="p-1.5 rounded-xl bg-white/20">
+            <i id="toast-icon" data-lucide="check-circle" class="w-5 h-5"></i>
+        </div>
+        <div>
+            <p id="toast-message" class="text-sm font-semibold">Berhasil memproses aksi.</p>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal (Menggantikan confirm bawaan browser) -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white border border-slate-200 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div class="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto">
+                <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+            </div>
+            <div class="text-center space-y-1">
+                <h3 class="font-extrabold text-lg text-slate-900">Konfirmasi Aksi</h3>
+                <p id="confirm-modal-text" class="text-xs text-slate-500">Apakah Anda yakin ingin melakukan tindakan ini?</p>
+            </div>
+            <div class="flex gap-2.5">
+                <button id="confirm-btn-cancel" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all">Batal</button>
+                <button id="confirm-btn-ok" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-bold text-white transition-all shadow-lg shadow-rose-600/20">Yakin</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Share Modal (QR & Link Generator) -->
+    <div id="share-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white border border-slate-200 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-5 relative overflow-hidden">
+            <div class="absolute -right-10 -top-10 w-32 h-32 bg-rose-500/5 rounded-full blur-2xl"></div>
+            <div class="text-center space-y-1">
+                <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="qr-code" class="w-6 h-6"></i>
+                </div>
+                <h3 class="font-extrabold text-lg text-slate-900">Bagikan Aplikasi WAJA</h3>
+                <p class="text-xs text-slate-500 leading-relaxed font-medium">Pindai kode QR di bawah ini atau ketik tautan resmi Anda untuk membagikan portal penyelamatan darurat jalan raya ini.</p>
+            </div>
+            
+            <!-- Warning Box for Local / Sandbox URL -->
+            <div id="share-local-warning" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-2xl flex gap-2.5 items-start text-[11px] text-amber-800 leading-relaxed">
+                <i data-lucide="alert-circle" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
+                <div>
+                    <span class="font-bold">Deteksi Link Lokal:</span> Link di bawah masih bersifat privat. Online-kan dahulu di Netlify, lalu ketik link Netlify Anda di kolom bawah untuk membuat barcode resmi.
+                </div>
+            </div>
+
+            <!-- QR Code Box -->
+            <div class="bg-slate-50 border border-slate-100 p-3 rounded-2xl w-40 h-40 mx-auto flex items-center justify-center shadow-sm">
+                <img id="share-qr-image" src="" alt="Kode QR WAJA" class="w-full h-full object-contain">
+            </div>
+
+            <!-- Link Copy & Edit Box -->
+            <div class="space-y-1.5">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tautan Aplikasi (Bisa Diedit/Ubah)</label>
+                <div class="flex gap-2">
+                    <input type="text" id="share-link-input" oninput="handleShareLinkChange()" placeholder="Masukkan link online aplikasi Anda..." class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono">
+                    <button onclick="copyShareLink()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white transition-all flex items-center gap-1 whitespace-nowrap">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin
+                    </button>
+                </div>
+            </div>
+
+            <button onclick="closeShareModal()" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all">Tutup</button>
+        </div>
+    </div>
+
+    <!-- Header Utama App / Role Selector -->
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-slate-200/80 px-4 py-3 sm:px-8 flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-600 to-amber-500 flex items-center justify-center shadow-md shadow-rose-500/10">
+                <!-- Custom W Logo -->
+                <span class="text-white font-black text-xl tracking-tighter">W</span>
+            </div>
+            <div>
+                <div class="flex items-center gap-1.5">
+                    <span class="font-extrabold text-lg tracking-wider bg-gradient-to-r from-rose-600 to-amber-500 bg-clip-text text-transparent">WAJA</span>
+                </div>
+                <p class="text-[10px] text-slate-400 font-medium hidden sm:block">Wadah Aksi Jaga Aman - Geolokasi Respon Cepat</p>
+            </div>
+        </div>
+
+        <!-- Role Toggle & Share Controller -->
+        <div class="flex items-center gap-2">
+            <div class="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                <button onclick="toggleRole('pelapor')" id="nav-btn-pelapor" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 bg-white text-slate-800 shadow-sm">
+                    <i data-lucide="phone-call" class="w-3.5 h-3.5"></i> Pelapor
+                </button>
+                <button onclick="toggleRole('admin')" id="nav-btn-admin" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 text-slate-500 hover:text-slate-800">
+                    <i data-lucide="shield" class="w-3.5 h-3.5"></i> Admin Instansi
+                </button>
+            </div>
+            
+            <button onclick="openShareModal()" class="bg-white hover:bg-slate-50 border border-slate-200 p-2.5 rounded-2xl text-slate-500 hover:text-slate-800 transition-all shadow-sm" title="Bagikan Aplikasi">
+                <i data-lucide="share-2" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Admin Password Modal -->
+    <div id="admin-auth-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white border border-slate-200 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden">
+            <div class="absolute -right-10 -bottom-10 w-32 h-32 bg-rose-500/5 rounded-full blur-2xl"></div>
+            
+            <div class="text-center mb-6">
+                <div class="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="lock" class="w-6 h-6"></i>
+                </div>
+                <h3 class="font-extrabold text-lg text-slate-900">Verifikasi Sandi Admin</h3>
+                <p class="text-xs text-slate-500 mt-1">Masukkan kata sandi instansi keamanan WAJA untuk mengelola respon darurat.</p>
+            </div>
+
+            <form onsubmit="handleAdminLogin(event)" class="space-y-4">
+                <div>
+                    <input type="password" id="admin-password-input" placeholder="Masukkan Sandi (WAJAADMIN)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 text-slate-800 placeholder-slate-400 text-center font-mono tracking-widest" required>
+                </div>
+                <div class="flex gap-2.5">
+                    <button type="button" onclick="cancelAdminAuth()" class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 transition-all">Batal</button>
+                    <button type="submit" class="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-xs font-bold text-white transition-all shadow-lg shadow-rose-600/20">Masuk</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN VIEW CONTAINER -->
+    <main class="flex-1 w-full max-w-7xl mx-auto p-4 md:p-6 lg:p-8">
+
+        <!-- ================= HALAMAN 1: PELAPOR (AKSES PUBLIK) ================= -->
+        <div id="view-pelapor" class="space-y-6">
+            
+            <!-- Banner Sosialisasi Edu-Keselamatan -->
+            <div class="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100/50 rounded-3xl p-5 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="absolute -right-20 -top-20 w-48 h-48 bg-rose-200/20 rounded-full blur-3xl"></div>
+                <div class="space-y-1.5 max-w-2xl z-10">
+                    <span class="text-[10px] bg-rose-100 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">Aman Bersama WAJA</span>
+                    <h2 class="text-xl md:text-2xl font-extrabold tracking-tight text-slate-900">Kecelakaan di Jalan Raya? Laporkan Segera!</h2>
+                    <p class="text-xs text-slate-600 leading-relaxed">Peta interaktif di bawah didesain agar mudah dioperasikan. Tandai lokasi kejadian di peta secara presisi atau ketuk SOS untuk pelacakan otomatis instan tanpa bingung koordinat.</p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0 z-10">
+                    <button onclick="scrollToAI()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2 whitespace-nowrap">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i> Konsultasi WAJA AI
+                    </button>
+                </div>
+            </div>
+
+            <!-- Grid Konten Pelapor -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                <!-- Sisi Kiri: Form Laporan Darurat Cepat (7 Kolom di LG) -->
+                <div class="lg:col-span-7 space-y-6">
+                    <div class="bg-white border border-slate-200/80 rounded-3xl p-6 space-y-6 shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></div>
+                                <h3 class="font-extrabold text-md text-slate-900">Kirim Laporan Darurat</h3>
+                            </div>
+                            <span class="text-xs text-slate-400 font-semibold">One-Tap Respon Cepat</span>
+                        </div>
+
+                        <!-- 1. TOMBOL SOS UTAMA - Khusus HP / Kondisi Panik -->
+                        <div class="flex flex-col items-center justify-center p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center space-y-4">
+                            <p class="text-xs text-rose-600 font-extrabold tracking-wider uppercase animate-pulse">Tekan S.O.S untuk Lacak Lokasi GPS Instan</p>
+                            <button onclick="triggerSOS()" class="sos-pulse relative w-36 h-36 rounded-full bg-rose-600 hover:bg-rose-500 flex flex-col items-center justify-center text-white active:scale-95 transition-transform duration-100 shadow-xl shadow-rose-600/30">
+                                <i data-lucide="alert-triangle" class="w-12 h-12 text-white animate-bounce"></i>
+                                <span class="font-black tracking-widest text-lg mt-1">S.O.S</span>
+                            </button>
+                            <p class="text-[10px] text-slate-500 max-w-sm leading-relaxed">Ketuk tombol merah di atas untuk mendeteksi koordinat Anda atau geser pin biru di peta bawah untuk koreksi posisi secara presisi.</p>
+                        </div>
+
+                        <!-- 2. PILIH LANGSUNG LEWAT MAPS INTERAKTIF -->
+                        <div class="space-y-2">
+                            <label class="block text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                                <i data-lucide="map" class="text-indigo-600 w-4 h-4"></i> Atur Lokasi pada Peta Interaktif
+                            </label>
+                            <div class="bg-slate-100 border border-slate-200 rounded-2xl p-1 overflow-hidden relative">
+                                <div id="map" class="h-64 w-full rounded-xl z-0"></div>
+                            </div>
+                            <p class="text-[10px] text-slate-400 leading-relaxed">Posisikan pin biru tepat di area kecelakaan. Anda juga dapat mengetuk titik mana saja di peta untuk memindahkan pin.</p>
+                        </div>
+
+                        <form id="emergency-report-form" onsubmit="submitEmergencyReport(event)" class="space-y-4">
+                            
+                            <!-- 3. DETEKSI ALAMAT JALAN & LINK GOOGLE MAPS -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                                    <i data-lucide="map-pin" class="w-3.5 h-3.5 text-rose-500"></i> Informasi Alamat Lengkap Terlacak
+                                </label>
+                                <div class="relative">
+                                    <textarea id="report-location-address" rows="3" placeholder="Peta di atas akan otomatis mengonversi titik koordinat menjadi nama jalan lengkap." class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 text-slate-800 placeholder-slate-400 resize-none leading-relaxed" required></textarea>
+                                    <button type="button" onclick="requestGPSLocation()" class="absolute right-3 top-3 text-rose-600 hover:text-rose-500 transition-colors" title="Lacak Ulang GPS">
+                                        <i data-lucide="locate" class="w-5 h-5"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 4. PILIHAN INSTANSI DARURAT -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 mb-2">Instansi Penyelamat yang Dibutuhkan:</label>
+                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                    <label class="border border-slate-200 bg-white hover:bg-slate-50 rounded-xl p-3 flex flex-col items-center gap-1.5 cursor-pointer transition-all">
+                                        <input type="checkbox" name="target-agency" value="PMI" class="accent-rose-600 w-4 h-4 mb-1" checked>
+                                        <i data-lucide="heart-pulse" class="w-4 h-4 text-rose-600"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 text-center leading-none">PMI</span>
+                                    </label>
+                                    <label class="border border-slate-200 bg-white hover:bg-slate-50 rounded-xl p-3 flex flex-col items-center gap-1.5 cursor-pointer transition-all">
+                                        <input type="checkbox" name="target-agency" value="Rumah Sakit" class="accent-rose-600 w-4 h-4 mb-1">
+                                        <i data-lucide="activity" class="w-4 h-4 text-indigo-600"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 text-center leading-none">RS</span>
+                                    </label>
+                                    <label class="border border-slate-200 bg-white hover:bg-slate-50 rounded-xl p-3 flex flex-col items-center gap-1.5 cursor-pointer transition-all">
+                                        <input type="checkbox" name="target-agency" value="Ambulance" class="accent-rose-600 w-4 h-4 mb-1" checked>
+                                        <i data-lucide="truck" class="w-4 h-4 text-emerald-600"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 text-center leading-none">Ambulance</span>
+                                    </label>
+                                    <label class="border border-slate-200 bg-white hover:bg-slate-50 rounded-xl p-3 flex flex-col items-center gap-1.5 cursor-pointer transition-all">
+                                        <input type="checkbox" name="target-agency" value="Polisi" class="accent-rose-600 w-4 h-4 mb-1" checked>
+                                        <i data-lucide="shield" class="w-4 h-4 text-blue-600"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 text-center leading-none">Lantas / Polisi</span>
+                                    </label>
+                                    <label class="border border-slate-200 bg-white hover:bg-slate-50 rounded-xl p-3 flex flex-col items-center gap-1.5 cursor-pointer transition-all">
+                                        <input type="checkbox" name="target-agency" value="Damkar" class="accent-rose-600 w-4 h-4 mb-1">
+                                        <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 text-center leading-none">Damkar</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 5. DESKRIPSI & FOTO SIMULASI -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div class="space-y-1.5">
+                                    <label class="block text-xs font-bold text-slate-600">Deskripsi Singkat Kejadian</label>
+                                    <textarea id="report-description" rows="3" placeholder="Contoh: Tabrakan sepeda motor di dekat perempatan jalan..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 text-slate-800 placeholder-slate-400 resize-none" required></textarea>
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="block text-xs font-bold text-slate-600">Foto Kondisi Kejadian (Simulasi)</label>
+                                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 h-[92px] flex flex-col justify-center items-center text-center relative hover:bg-slate-100 transition-all cursor-pointer">
+                                        <input type="file" id="report-photo" accept="image/*" onchange="previewSelectedImage(event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                                        <div id="photo-placeholder" class="space-y-1 text-slate-400">
+                                            <i data-lucide="camera" class="w-5 h-5 mx-auto"></i>
+                                            <span class="text-[10px] block font-semibold text-slate-500">Unggah/Ambil Foto Kejadian</span>
+                                        </div>
+                                        <div id="photo-preview-container" class="hidden w-full h-full absolute inset-0 rounded-xl overflow-hidden bg-cover bg-center">
+                                            <button type="button" onclick="removeSelectedImage(event)" class="absolute top-1 right-1 bg-slate-900/80 p-1 rounded-full text-white hover:bg-slate-900" title="Hapus foto">
+                                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="w-full bg-rose-600 hover:bg-rose-500 py-3.5 rounded-xl font-bold text-sm text-white transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2">
+                                <i data-lucide="send" class="w-4 h-4"></i> Kirim Laporan Darurat Sekarang
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Sisi Kanan: Status Laporan Aktif & Panduan Darurat (5 Lintas Kolom) -->
+                <div class="lg:col-span-5 space-y-6">
+                    
+                    <!-- Laporan Aktif Status Card -->
+                    <div id="active-status-card" class="bg-white border border-slate-200/80 rounded-3xl p-6 relative overflow-hidden shadow-sm">
+                        <h4 class="font-extrabold text-sm text-slate-900 mb-4 flex items-center gap-2">
+                            <i data-lucide="hourglass" class="text-amber-500 animate-spin"></i> Status Penyelamatan Anda
+                        </h4>
+
+                        <!-- Kondisi Belum Ada Laporan -->
+                        <div id="status-empty-state" class="text-center py-8 space-y-3">
+                            <div class="w-12 h-12 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center mx-auto">
+                                <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                            </div>
+                            <p class="text-xs text-slate-500 font-medium leading-relaxed">Anda belum mengirim laporan darurat saat ini.</p>
+                        </div>
+
+                        <!-- Kondisi Ada Laporan Aktif -->
+                        <div id="status-active-state" class="hidden space-y-5">
+                            <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/60 flex items-center justify-between">
+                                <span class="text-xs font-semibold text-slate-500">Respon Instansi:</span>
+                                <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/20 animate-pulse">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                                    Menunggu Respon
+                                </div>
+                            </div>
+
+                            <!-- Detail Laporan Singkat -->
+                            <div class="space-y-3 text-xs text-slate-700">
+                                <div class="flex justify-between border-b border-slate-100 pb-2">
+                                    <span class="text-slate-400 font-medium">Waktu Kirim:</span>
+                                    <span id="active-time" class="font-mono font-bold">--:--:--</span>
+                                </div>
+                                <div class="flex justify-between border-b border-slate-100 pb-2">
+                                    <span class="text-slate-400 font-medium">Instansi Dituju:</span>
+                                    <span id="active-agencies" class="font-bold text-rose-600 text-right">PMI, Ambulance, Polisi</span>
+                                </div>
+                                <div class="space-y-1 py-1">
+                                    <span class="text-slate-400 font-medium">Lokasi Kejadian:</span>
+                                    <p id="active-location-display" class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl leading-relaxed text-[11px] text-slate-700 font-medium">Melacak...</p>
+                                </div>
+                                <div class="space-y-1">
+                                    <span class="text-slate-400 font-medium">Deskripsi:</span>
+                                    <p id="active-desc" class="p-3 bg-slate-50 border border-slate-200 rounded-xl leading-relaxed text-slate-700">Tidak ada deskripsi.</p>
+                                </div>
+                            </div>
+
+                            <!-- Tombol Batalkan Laporan -->
+                            <button onclick="cancelActiveReport()" class="w-full py-2.5 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-xs font-bold rounded-xl text-slate-500 hover:text-rose-600 transition-all flex items-center justify-center gap-1.5">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Batalkan Laporan Darurat
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Buku Saku Edukasi Pelopor Keselamatan -->
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-3xl p-6 space-y-4">
+                        <div class="flex items-center gap-2.5">
+                            <div class="p-1.5 rounded-xl bg-white text-indigo-600 shadow-sm border border-indigo-100">
+                                <i data-lucide="book-open" class="w-5 h-5"></i>
+                            </div>
+                            <h4 class="font-extrabold text-sm text-slate-900">Buku Saku Jaga Aman</h4>
+                        </div>
+                        <p class="text-xs text-indigo-950/80 leading-relaxed">Gerakan Pelopor Keselamatan mengajarkan prinsip **3S (Sadar, Sopan, Selamat)** dalam berlalu lintas. Utamakan helm berstandar SNI, patuhi rambu, dan jangan operasikan ponsel pintar saat berkendara.</p>
+                        <div class="grid grid-cols-2 gap-2 text-[10px] text-indigo-700 font-bold">
+                            <div class="p-2.5 bg-white border border-indigo-100/50 rounded-xl flex items-center gap-1.5 shadow-sm">
+                                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-indigo-600"></i> Defensive Riding
+                            </div>
+                            <div class="p-2.5 bg-white border border-indigo-100/50 rounded-xl flex items-center gap-1.5 shadow-sm">
+                                <i data-lucide="heart" class="w-3.5 h-3.5 text-rose-500"></i> Penanganan Luka
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- SECTION WAJA AI: EDUKASI DAN SARAN PENANGANAN -->
+            <div id="waja-ai-panel" class="bg-white border border-slate-200/80 rounded-3xl p-6 space-y-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center animate-pulse">
+                            <i data-lucide="sparkles" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-extrabold text-md text-slate-900">WAJA AI: Chat Edukasi & Rekomendasi</h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Pertolongan pertama jalan raya, panduan berkendara, & analisa tingkat urgensi.</p>
+                        </div>
+                    </div>
+                    <span class="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 px-3 py-1 rounded-full font-bold self-start sm:self-auto">Didukung Gemini API</span>
+                </div>
+
+                <!-- Chat Box Area -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    
+                    <!-- Bubble Recommendations (4 Kolom di LG) -->
+                    <div class="lg:col-span-4 space-y-3">
+                        <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Rekomendasi Topik</span>
+                        <button onclick="sendQuickAiQuery('Berikan panduan pertolongan pertama pada korban patah tulang akibat kecelakaan sepeda motor')" class="w-full text-left p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-indigo-500 hover:bg-white text-xs text-slate-700 transition-all space-y-1 block shadow-sm">
+                            <span class="font-bold text-indigo-600 flex items-center gap-1"><i data-lucide="heart-pulse" class="w-3 h-3"></i> Pertolongan Patah Tulang</span>
+                            <span class="text-[10px] text-slate-400 block leading-normal font-medium">Cara menangani patah tulang tanpa menggeser sembarangan.</span>
+                        </button>
+                        <button onclick="sendQuickAiQuery('Bagaimana prinsip berkendara defensif (Defensive Driving) di musim hujan lebat agar terhindar dari aquaplaning')" class="w-full text-left p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-indigo-500 hover:bg-white text-xs text-slate-700 transition-all space-y-1 block shadow-sm">
+                            <span class="font-bold text-amber-600 flex items-center gap-1"><i data-lucide="navigation" class="w-3 h-3"></i> Defensive Riding Hujan Lebat</span>
+                            <span class="text-[10px] text-slate-400 block leading-normal font-medium">Tips menghindari selip ban saat jalanan basah tergenang.</span>
+                        </button>
+                        <button onclick="sendQuickAiQuery('Bagaimana mengevaluasi tingkat urgensi korban kecelakaan yang tidak sadarkan diri di jalan raya (langkah ABC)')" class="w-full text-left p-3 rounded-2xl bg-slate-50 border border-slate-200 hover:border-indigo-500 hover:bg-white text-xs text-slate-700 transition-all space-y-1 block shadow-sm">
+                            <span class="font-bold text-emerald-600 flex items-center gap-1"><i data-lucide="activity" class="w-3 h-3"></i> Analisis Luka & Korban (ABC)</span>
+                            <span class="text-[10px] text-slate-400 block leading-normal font-medium">Mengevaluasi jalur napas, detak nadi, & tingkat kesadaran.</span>
+                        </button>
+                    </div>
+
+                    <!-- Chat Interface (8 Kolom di LG) -->
+                    <div class="lg:col-span-8 flex flex-col h-[380px] bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                        
+                        <!-- Chat Message History -->
+                        <div id="ai-chat-history" class="flex-1 overflow-y-auto p-4 space-y-4">
+                            <!-- AI Welcome Bubble -->
+                            <div class="flex items-start gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                                    <i data-lucide="sparkles" class="w-4 h-4 text-white"></i>
+                                </div>
+                                <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3 max-w-[85%] text-xs text-slate-700 leading-relaxed shadow-sm font-medium">
+                                    Halo! Saya **WAJA AI**. Saya siap membantu membimbing langkah Anda:
+                                    <ul class="list-disc pl-4 mt-1 space-y-1 font-semibold text-slate-600">
+                                        <li>Langkah pertolongan pertama di lokasi kecelakaan.</li>
+                                        <li>Tips aman berkendara (Safety Riding).</li>
+                                        <li>Analisis tingkat keparahan/urgensi korban kecelakaan.</li>
+                                    </ul>
+                                    Silakan ketik pertanyaan Anda atau gunakan tombol pintasan di sebelah kiri.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Typing Indicator -->
+                        <div id="ai-typing-indicator" class="hidden px-4 py-2 flex items-center gap-2 text-[10px] text-slate-400 bg-white border-t border-slate-100">
+                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce"></span>
+                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:0.2s]"></span>
+                            <span class="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-bounce [animation-delay:0.4s]"></span>
+                            <span class="font-semibold">WAJA AI sedang menyusun jawaban medis & saran...</span>
+                        </div>
+
+                        <!-- Chat Input Box -->
+                        <form id="ai-chat-form" onsubmit="handleAiChatSubmit(event)" class="p-3 bg-white border-t border-slate-200 flex gap-2">
+                            <input type="text" id="ai-input" placeholder="Tanyakan saran pertolongan pertama medis atau panduan jalan raya..." class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 placeholder-slate-400" required>
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shrink-0">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i> Kirim
+                            </button>
+                        </form>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= HALAMAN 2: INSTANSI / RESPON (AKSES ADMIN) ================= -->
+        <div id="view-admin" class="space-y-6 hidden">
+            
+            <!-- Admin Top Stats -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 flex items-center justify-between shadow-sm">
+                    <div>
+                        <span class="text-xs font-bold text-slate-400">Total Laporan Masuk</span>
+                        <h4 id="stat-total-reports" class="text-3xl font-black text-slate-900 mt-1">0</h4>
+                    </div>
+                    <div class="p-3 rounded-2xl bg-indigo-50 text-indigo-600">
+                        <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                    </div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 flex items-center justify-between shadow-sm">
+                    <div>
+                        <span class="text-xs font-bold text-amber-600">Menunggu Respon</span>
+                        <h4 id="stat-pending-reports" class="text-3xl font-black text-amber-600 mt-1">0</h4>
+                    </div>
+                    <div class="p-3 rounded-2xl bg-amber-50 text-amber-600">
+                        <i data-lucide="bell" class="w-6 h-6 animate-pulse"></i>
+                    </div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 flex items-center justify-between shadow-sm">
+                    <div>
+                        <span class="text-xs font-bold text-emerald-600">Bantuan Berjalan</span>
+                        <h4 id="stat-responded-reports" class="text-3xl font-black text-emerald-600 mt-1">0</h4>
+                    </div>
+                    <div class="p-3 rounded-2xl bg-emerald-50 text-emerald-600">
+                        <i data-lucide="truck" class="w-6 h-6"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Live Monitor Laporan -->
+            <div class="bg-white border border-slate-200 rounded-3xl p-6 space-y-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="font-extrabold text-md text-slate-900">Dashboard Penyelamatan Darurat</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Daftar kejadian real-time terintegrasi Google Maps.</p>
+                    </div>
+                    <button onclick="triggerResetDatabase()" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 self-start">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Bersihkan Riwayat Data
+                    </button>
+                </div>
+
+                <!-- Database Table Container -->
+                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-widest font-extrabold text-slate-500">
+                                    <th class="p-4">Waktu</th>
+                                    <th class="p-4">Foto Kejadian</th>
+                                    <th class="p-4">Lokasi & Tautan Maps</th>
+                                    <th class="p-4">Deskripsi / Detail</th>
+                                    <th class="p-4">Instansi Dituju</th>
+                                    <th class="p-4">Status</th>
+                                    <th class="p-4 text-right">Aksi Penanganan</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-report-table-body" class="divide-y divide-slate-100 text-xs text-slate-700">
+                                <!-- Diisi dinamis via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Table Empty State -->
+                    <div id="table-empty-state" class="p-12 text-center space-y-3 hidden">
+                        <div class="w-12 h-12 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mx-auto">
+                            <i data-lucide="inbox" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-slate-600">Belum Ada Laporan Masuk</p>
+                            <p class="text-[10px] text-slate-400 mt-1">Laporan darurat dari publik akan terdaftar di sini secara otomatis.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Leaflet Map JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- JAVASCRIPT & APLIKASI LOGIC -->
+    <script>
+        // In-Memory state synced to LocalStorage
+        let activeRole = 'pelapor';
+        let isAuthorizedAdmin = false;
+        let selectedBase64Image = null;
+
+        // Leaflet Map Global Variables
+        let map;
+        let mapMarker;
+        const DEFAULT_COORDS = [-3.316694, 114.590111]; // Default coordinate Banjarmasin, Indonesia
+
+        // Custom Confirm dialog callback
+        let confirmCallback = null;
+
+        // Custom helper for Lucide to prevent uncaught reference error if library is loading slowly
+        function safeCreateIcons() {
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                try {
+                    lucide.createIcons();
+                } catch (e) {
+                    console.error("Error creating Lucide icons:", e.message || e);
+                }
+            } else {
+                console.warn("Lucide icons library not fully loaded yet.");
+            }
+        }
+
+        // Fetch reports or initialize default empty array
+        function getReportsFromDb() {
+            return JSON.parse(localStorage.getItem('waja_reports')) || [];
+        }
+
+        function saveReportsToDb(reports) {
+            localStorage.setItem('waja_reports', JSON.stringify(reports));
+            renderStatusTracker();
+            if (activeRole === 'admin') {
+                renderAdminDashboard();
+            }
+        }
+
+        // Fetch active report ID (if any)
+        function getActiveReportId() {
+            return localStorage.getItem('waja_active_report_id') || null;
+        }
+
+        function setActiveReportId(id) {
+            if (id === null) {
+                localStorage.removeItem('waja_active_report_id');
+            } else {
+                localStorage.setItem('waja_active_report_id', id);
+            }
+            renderStatusTracker();
+        }
+
+        // Handle Consent Modal Decision
+        function handleConsentDecision(allowed) {
+            // Tutup modal izin lokasi
+            document.getElementById('consent-modal').classList.add('hidden');
+            
+            if (allowed) {
+                sessionStorage.setItem('waja_gps_consent', 'granted');
+                requestGPSLocation();
+            } else {
+                sessionStorage.setItem('waja_gps_consent', 'denied');
+                showToast("Menggunakan koordinat default wilayah.", "info");
+            }
+        }
+
+        // Initialize the Leaflet Map
+        function initializeLeafletMap() {
+            if (typeof L === 'undefined') {
+                console.error("Leaflet map library (L) is not loaded or is undefined.");
+                return;
+            }
+            try {
+                // Inisialisasi peta standard Light Mode
+                map = L.map('map', {
+                    zoomControl: true,
+                    attributionControl: false
+                }).setView(DEFAULT_COORDS, 14);
+
+                // OpenStreetMap Light Mode Tile Server
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(map);
+
+                // Tambahkan marker default yang bisa digeser
+                mapMarker = L.marker(DEFAULT_COORDS, {
+                    draggable: true
+                }).addTo(map);
+
+                // Update alamat jika pin digeser
+                mapMarker.on('dragend', function (event) {
+                    const position = mapMarker.getLatLng();
+                    updateLocationFromLatLng(position.lat, position.lng);
+                });
+
+                // Update alamat jika peta diketuk langsung
+                map.on('click', function (event) {
+                    const { lat, lng } = event.latlng;
+                    mapMarker.setLatLng([lat, lng]);
+                    updateLocationFromLatLng(lat, lng);
+                });
+
+                // Tampilkan alamat koordinat pertama kali
+                updateLocationFromLatLng(DEFAULT_COORDS[0], DEFAULT_COORDS[1]);
+
+            } catch (err) {
+                console.error("Gagal memuat Leaflet Map:", err.message || err);
+            }
+        }
+
+        // Reverse Geocoding OSM Nominatim untuk menerjemahkan ke alamat aseli
+        function updateLocationFromLatLng(lat, lng) {
+            const locationArea = document.getElementById('report-location-address');
+            locationArea.value = "Menerjemahkan titik lokasi satelit...";
+
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+                headers: {
+                    'Accept-Language': 'id-ID, id;q=0.9'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.display_name) {
+                    const cleanAddress = data.display_name;
+                    locationArea.value = `${cleanAddress}\n\n[Google Maps: https://www.google.com/maps?q=${lat},${lng}]`;
+                } else {
+                    throw new Error("Gagal mengurai alamat.");
+                }
+            })
+            .catch(err => {
+                console.warn("Peringatan reverse geocoding:", err.message || err);
+                // Fallback jika API sedang sibuk
+                locationArea.value = `Lokasi Koordinat Jalan\n\n[Google Maps: https://www.google.com/maps?q=${lat},${lng}]`;
+            });
+        }
+
+        // GPS Tracker One-Tap Integration
+        function requestGPSLocation() {
+            if (navigator.geolocation) {
+                showToast("Melacak sensor GPS perangkat...", "info");
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        if (map && mapMarker) {
+                            mapMarker.setLatLng([lat, lng]);
+                            map.setView([lat, lng], 16);
+                            updateLocationFromLatLng(lat, lng);
+                            showToast("Lokasi berhasil dikunci secara presisi!", "success");
+                        }
+                    },
+                    (error) => {
+                        // Sanitized logging to prevent empty object JSON printing [CONSOLE_ERROR] {}
+                        console.error("GPS Error: " + (error.message || "Akses ditolak (Code: " + error.code + ")"));
+                        showToast("Akses lokasi dibatasi oleh browser/perangkat Anda.", "error");
+                    },
+                    { enableHighAccuracy: true, timeout: 8000 }
+                );
+            } else {
+                showToast("Satelit GPS tidak didukung di perangkat ini.", "error");
+            }
+        }
+
+        // ================= FITUR BAGI / SHARE APLIKASI =================
+        function openShareModal() {
+            let currentUrl = window.location.href;
+            
+            // Coba ambil url utama jika dijalankan di dalam iframe sandbox
+            if (window.self !== window.top) {
+                try {
+                    currentUrl = window.parent.location.href;
+                } catch (e) {
+                    // Abaikan pembatasan CORS iframe
+                }
+            }
+            
+            const input = document.getElementById('share-link-input');
+            input.value = currentUrl;
+            
+            updateQrCode(currentUrl);
+            detectLocalUrl(currentUrl);
+            
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function handleShareLinkChange() {
+            const input = document.getElementById('share-link-input');
+            const url = input.value.trim();
+            if (url) {
+                updateQrCode(url);
+                detectLocalUrl(url);
+            }
+        }
+
+        function updateQrCode(url) {
+            const qrImg = document.getElementById('share-qr-image');
+            qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}`;
+        }
+
+        function detectLocalUrl(url) {
+            const warningBox = document.getElementById('share-local-warning');
+            const isLocal = url.startsWith('file:') || 
+                            url.includes('localhost') || 
+                            url.includes('127.0.0.1') || 
+                            url.includes('webcontainer') || 
+                            url.includes('preview') ||
+                            url.includes('html-preview') ||
+                            url.startsWith('blob:');
+                            
+            if (isLocal) {
+                warningBox.classList.remove('hidden');
+            } else {
+                warningBox.classList.add('hidden');
+            }
+        }
+
+        function copyShareLink() {
+            const input = document.getElementById('share-link-input');
+            input.select();
+            document.execCommand('copy');
+            showToast("Tautan darurat berhasil disalin ke papan klip!", "success");
+        }
+
+        // Trigger SOS Utama
+        function triggerSOS() {
+            requestGPSLocation();
+        }
+
+        // Preview Selected Image Simulator
+        function previewSelectedImage(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    selectedBase64Image = e.target.result;
+                    
+                    const preview = document.getElementById('photo-preview-container');
+                    const placeholder = document.getElementById('photo-placeholder');
+                    
+                    preview.style.backgroundImage = `url('${selectedBase64Image}')`;
+                    preview.classList.remove('hidden');
+                    placeholder.classList.add('hidden');
+                    
+                    showToast("Foto simulasi kejadian siap dilampirkan!", "success");
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function removeSelectedImage(event) {
+            if (event) event.stopPropagation();
+            selectedBase64Image = null;
+            document.getElementById('report-photo').value = "";
+            
+            const preview = document.getElementById('photo-preview-container');
+            const placeholder = document.getElementById('photo-placeholder');
+            
+            preview.style.backgroundImage = 'none';
+            preview.classList.add('hidden');
+            placeholder.classList.remove('hidden');
+        }
+
+        // Custom Toast Alerts System
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('waja-toast');
+            const toastMsg = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+            const toastIconBg = document.getElementById('toast-icon-bg');
+
+            toastMsg.innerText = message;
+
+            if (type === 'error') {
+                toast.className = "fixed top-5 right-5 z-50 transform translate-x-full transition-transform duration-300 bg-rose-600 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-rose-500/10";
+                toastIconBg.className = "p-1.5 rounded-xl bg-white/20";
+                toastIcon.setAttribute('data-lucide', 'alert-circle');
+            } else if (type === 'info') {
+                toast.className = "fixed top-5 right-5 z-50 transform translate-x-full transition-transform duration-300 bg-amber-600 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-500/10";
+                toastIconBg.className = "p-1.5 rounded-xl bg-white/20";
+                toastIcon.setAttribute('data-lucide', 'info');
+            } else {
+                toast.className = "fixed top-5 right-5 z-50 transform translate-x-full transition-transform duration-300 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-emerald-500/10";
+                toastIconBg.className = "p-1.5 rounded-xl bg-white/20";
+                toastIcon.setAttribute('data-lucide', 'check-circle');
+            }
+
+            safeCreateIcons();
+
+            // Slide in
+            toast.classList.remove('translate-x-full');
+            toast.classList.add('translate-x-0');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-x-0');
+                toast.classList.add('translate-x-full');
+            }, 4000);
+        }
+
+        // Custom Confirmation Dialog Handler
+        function customConfirm(text, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            const textElement = document.getElementById('confirm-modal-text');
+            const btnCancel = document.getElementById('confirm-btn-cancel');
+            const btnOk = document.getElementById('confirm-btn-ok');
+
+            textElement.innerText = text;
+            modal.classList.remove('hidden');
+
+            const clearEvents = () => {
+                btnCancel.onclick = null;
+                btnOk.onclick = null;
+                modal.classList.add('hidden');
+            };
+
+            btnCancel.onclick = () => {
+                clearEvents();
+            };
+
+            btnOk.onclick = () => {
+                clearEvents();
+                onConfirm();
+            };
+        }
+
+        // Switching Role (Pelapor / Admin Panel)
+        function toggleRole(role) {
+            if (role === 'admin') {
+                if (isAuthorizedAdmin) {
+                    switchToAdminView();
+                } else {
+                    document.getElementById('admin-auth-modal').classList.remove('hidden');
+                }
+            } else {
+                activeRole = 'pelapor';
+                document.getElementById('view-pelapor').classList.remove('hidden');
+                document.getElementById('view-admin').classList.add('hidden');
+
+                // Adjust UI Navbar Style
+                document.getElementById('nav-btn-pelapor').className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 bg-white text-slate-800 shadow-sm";
+                document.getElementById('nav-btn-admin').className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 text-slate-500 hover:text-slate-800";
+            
+                setTimeout(() => {
+                    if (map) map.invalidateSize();
+                }, 100);
+            }
+        }
+
+        function handleAdminLogin(event) {
+            event.preventDefault();
+            const password = document.getElementById('admin-password-input').value;
+
+            if (password === 'WAJAADMIN') {
+                isAuthorizedAdmin = true;
+                document.getElementById('admin-auth-modal').classList.add('hidden');
+                switchToAdminView();
+                showToast("Selamat Datang Operator Darurat WAJA!", "success");
+            } else {
+                showToast("Kata sandi salah! Akses ditolak.", "error");
+            }
+            document.getElementById('admin-password-input').value = "";
+        }
+
+        function cancelAdminAuth() {
+            document.getElementById('admin-auth-modal').classList.add('hidden');
+            toggleRole('pelapor');
+        }
+
+        function switchToAdminView() {
+            activeRole = 'admin';
+            document.getElementById('view-pelapor').classList.add('hidden');
+            document.getElementById('view-admin').classList.remove('hidden');
+
+            document.getElementById('nav-btn-admin').className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 bg-white text-slate-800 shadow-sm";
+            document.getElementById('nav-btn-pelapor').className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-300 text-slate-500 hover:text-slate-800";
+            
+            renderAdminDashboard();
+        }
+
+        // Handle Emergency Report Submission
+        function submitEmergencyReport(event) {
+            event.preventDefault();
+
+            const locationAddress = document.getElementById('report-location-address').value.trim();
+            const desc = document.getElementById('report-description').value.trim();
+            
+            const checkboxes = document.querySelectorAll('input[name="target-agency"]:checked');
+            const targetAgencies = Array.from(checkboxes).map(cb => cb.value);
+
+            if (targetAgencies.length === 0) {
+                showToast("Harap pilih minimal 1 instansi penyelamat!", "error");
+                return;
+            }
+
+            if (!locationAddress || locationAddress.startsWith("Menerjemahkan") || locationAddress === "") {
+                showToast("Harap tentukan titik lokasi pada peta terlebih dahulu!", "error");
+                return;
+            }
+
+            const timestamp = new Date();
+            const reportId = 'WAJA-' + timestamp.getTime();
+
+            const newReport = {
+                id: reportId,
+                locationAddress: locationAddress,
+                description: desc,
+                agencies: targetAgencies.join(', '),
+                photo: selectedBase64Image || 'https://placehold.co/600x400/f1f5f9/94a3b8?text=Simulasi+Foto+Kejadian',
+                timestamp: timestamp.toLocaleString('id-ID'),
+                status: 'Menunggu Respon'
+            };
+
+            const db = getReportsFromDb();
+            db.unshift(newReport);
+            saveReportsToDb(db);
+
+            setActiveReportId(reportId);
+
+            document.getElementById('report-description').value = "";
+            removeSelectedImage();
+            
+            showToast("Laporan Darurat Berhasil Dikirim!", "success");
+            scrollToStatus();
+        }
+
+        function scrollToStatus() {
+            document.getElementById('active-status-card').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Render Active Status Tracker on Pelapor View
+        function renderStatusTracker() {
+            const activeId = getActiveReportId();
+            const emptyState = document.getElementById('status-empty-state');
+            const activeState = document.getElementById('status-active-state');
+
+            if (!activeId) {
+                emptyState.classList.remove('hidden');
+                activeState.classList.add('hidden');
+                return;
+            }
+
+            const db = getReportsFromDb();
+            const currentReport = db.find(r => r.id === activeId);
+
+            if (!currentReport) {
+                setActiveReportId(null);
+                emptyState.classList.remove('hidden');
+                activeState.classList.add('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            activeState.classList.remove('hidden');
+
+            document.getElementById('active-time').innerText = currentReport.timestamp;
+            document.getElementById('active-agencies').innerText = currentReport.agencies;
+            document.getElementById('active-location-display').innerText = currentReport.locationAddress;
+            document.getElementById('active-desc').innerText = currentReport.description;
+
+            const badge = document.getElementById('status-badge');
+            if (currentReport.status === 'Bantuan dalam Perjalanan') {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-200 animate-pulse";
+                badge.innerHTML = `<div class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Bantuan dalam Perjalanan`;
+            } else {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-200 animate-pulse";
+                badge.innerHTML = `<div class="w-1.5 h-1.5 rounded-full bg-amber-500"></div> Menunggu Respon`;
+            }
+        }
+
+        // Render Admin Dashboard list and metrics
+        function renderAdminDashboard() {
+            const db = getReportsFromDb();
+            const tbody = document.getElementById('admin-report-table-body');
+            const emptyState = document.getElementById('table-empty-state');
+
+            document.getElementById('stat-total-reports').innerText = db.length;
+            document.getElementById('stat-pending-reports').innerText = db.filter(r => r.status === 'Menunggu Respon').length;
+            document.getElementById('stat-responded-reports').innerText = db.filter(r => r.status === 'Bantuan dalam Perjalanan').length;
+
+            if (db.length === 0) {
+                tbody.innerHTML = "";
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            
+            tbody.innerHTML = db.map(report => {
+                const statusBadge = report.status === 'Bantuan dalam Perjalanan' 
+                    ? `<span class="px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">Berjalan</span>`
+                    : `<span class="px-2 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">Menunggu</span>`;
+
+                const actionButton = report.status === 'Menunggu Respon'
+                    ? `<button onclick="respondToReport('${report.id}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[11px] rounded-lg shadow-sm transition-all flex items-center gap-1"><i data-lucide="truck" class="w-3.5 h-3.5"></i> RESPON LAPORAN</button>`
+                    : `<button onclick="resolveReport('${report.id}')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1"><i data-lucide="check-square" class="w-3.5 h-3.5"></i> Selesaikan</button>`;
+
+                const mapsRegex = /https:\/\/www\.google\.com\/maps\?q=[-\d.]+,[\d.]+/;
+                const match = report.locationAddress.match(mapsRegex);
+                let mapsLinkHTML = '';
+                if (match) {
+                    mapsLinkHTML = `
+                        <a href="${match[0]}" target="_blank" class="mt-1 text-indigo-600 hover:underline flex items-center gap-1 font-bold text-[10px]">
+                            <i data-lucide="map" class="w-3 h-3"></i> Buka Google Maps &rarr;
+                        </a>
+                    `;
+                } else {
+                    const encodedSearch = encodeURIComponent(report.locationAddress);
+                    mapsLinkHTML = `
+                        <a href="https://www.google.com/maps/search/?api=1&query=${encodedSearch}" target="_blank" class="mt-1 text-indigo-600 hover:underline flex items-center gap-1 font-bold text-[10px]">
+                            <i data-lucide="search" class="w-3 h-3"></i> Cari di Peta &rarr;
+                        </a>
+                    `;
+                }
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">${report.timestamp}</td>
+                        <td class="p-4">
+                            <div class="w-14 h-10 rounded-lg bg-cover bg-center border border-slate-200 cursor-pointer shadow-sm" style="background-image: url('${report.photo}')" onclick="openPhotoModal('${report.photo}')" title="Klik untuk melihat"></div>
+                        </td>
+                        <td class="p-4 max-w-xs">
+                            <div class="flex flex-col gap-1">
+                                <p class="text-xs text-slate-800 line-clamp-2" title="${report.locationAddress}">${report.locationAddress}</p>
+                                ${mapsLinkHTML}
+                            </div>
+                        </td>
+                        <td class="p-4 max-w-xs">
+                            <p class="truncate font-medium text-slate-700" title="${report.description}">${report.description}</p>
+                        </td>
+                        <td class="p-4">
+                            <span class="font-bold text-slate-800 whitespace-nowrap">${report.agencies}</span>
+                        </td>
+                        <td class="p-4">${statusBadge}</td>
+                        <td class="p-4 text-right">${actionButton}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            safeCreateIcons();
+        }
+
+        // Admin Actions
+        function respondToReport(id) {
+            let db = getReportsFromDb();
+            db = db.map(r => {
+                if (r.id === id) {
+                    r.status = 'Bantuan dalam Perjalanan';
+                }
+                return r;
+            });
+            saveReportsToDb(db);
+            showToast("Bantuan dalam Perjalanan dikirim ke lokasi!", "success");
+        }
+
+        function resolveReport(id) {
+            let db = getReportsFromDb();
+            db = db.filter(r => r.id !== id);
+            saveReportsToDb(db);
+            
+            if (getActiveReportId() === id) {
+                setActiveReportId(null);
+            }
+            
+            showToast("Laporan telah berhasil diselesaikan.", "success");
+        }
+
+        function triggerResetDatabase() {
+            customConfirm("Apakah Anda yakin ingin mengosongkan seluruh riwayat laporan?", () => {
+                localStorage.removeItem('waja_reports');
+                setActiveReportId(null);
+                showReportsMock();
+                showToast("Riwayat database berhasil dikosongkan.", "info");
+            });
+        }
+
+        function openPhotoModal(base64) {
+            const win = window.open();
+            win.document.write(`<iframe src="${base64}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+        }
+
+        // ================= GEMINI AI CHAT LOGIC =================
+        async function handleAiChatSubmit(event) {
+            event.preventDefault();
+            const input = document.getElementById('ai-input');
+            const text = input.value.trim();
+
+            if (!text) return;
+
+            appendChatMessage(text, 'user');
+            input.value = "";
+
+            await callWajaGeminiAI(text);
+        }
+
+        function sendQuickAiQuery(query) {
+            appendChatMessage(query, 'user');
+            callWajaGeminiAI(query);
+            scrollToAI();
+        }
+
+        function scrollToAI() {
+            document.getElementById('waja-ai-panel').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function appendChatMessage(message, sender) {
+            const chatBox = document.getElementById('ai-chat-history');
+            const bubble = document.createElement('div');
+
+            if (sender === 'user') {
+                bubble.className = "flex items-start gap-3 justify-end";
+                bubble.innerHTML = `
+                    <div class="bg-indigo-600 text-white rounded-2xl rounded-tr-none p-3 max-w-[85%] text-xs leading-relaxed shadow-sm font-semibold">
+                        ${message}
+                    </div>
+                    <div class="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                        <i data-lucide="user" class="w-4 h-4"></i>
+                    </div>
+                `;
+            } else {
+                bubble.className = "flex items-start gap-3";
+                const formattedText = formatMarkdown(message);
+                bubble.innerHTML = `
+                    <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                        <i data-lucide="sparkles" class="w-4 h-4 text-white"></i>
+                    </div>
+                    <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3 max-w-[85%] text-xs text-slate-700 leading-relaxed shadow-sm font-medium">
+                        ${formattedText}
+                    </div>
+                `;
+            }
+
+            chatBox.appendChild(bubble);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            safeCreateIcons();
+        }
+
+        function formatMarkdown(text) {
+            let formatted = text;
+            formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            formatted = formatted.replace(/`(.*?)`/g, '<code class="bg-slate-100 px-1 py-0.5 rounded font-mono text-indigo-600">$1</code>');
+            formatted = formatted.replace(/^\s*-\s+(.*?)$/gm, '<li class="ml-4 list-disc font-medium">$1</li>');
+            formatted = formatted.replace(/\n/g, '<br>');
+            return formatted;
+        }
+
+        // API Call to Keyless Gemini API Preview Endpoint
+        async function callWajaGeminiAI(userQuery) {
+            const typingIndicator = document.getElementById('ai-typing-indicator');
+            typingIndicator.classList.remove('hidden');
+
+            const systemPrompt = `Kamu adalah WAJA AI, asisten medis pintar dari aplikasi keselamatan WAJA (Wadah Aksi Jaga Aman).
+Tugas utamamu adalah:
+1. Memberikan panduan praktis pertolongan pertama (First Aid) penanganan darurat kecelakaan di jalan raya secara tenang dan aman.
+2. Mengedukasi masyarakat tentang Safety Riding dan Defensive Driving (cermat berkendara).
+3. Menganalisis tingkat keparahan kecelakaan dan urgensinya berdasarkan cerita pelapor.
+Aturan:
+- Berikan poin-poin/bullet list yang pendek, ringkas, jelas, agar mudah dipahami oleh orang yang sedang panik.
+- Hindari penjelasan yang terlalu berbelit-belit.
+- Bahasa harus santun, empati, menenangkan, dan mendidik.`;
+
+            const apiKey = ""; // Workspace automatically injects keyless runtime credentials
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                }
+            };
+
+            let attempts = 0;
+            const maxAttempts = 3;
+            let responseReceived = false;
+
+            while (attempts < maxAttempts && !responseReceived) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.status === 429) {
+                        const delay = Math.pow(2, attempts) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        attempts++;
+                        continue;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(`Status error: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const candidate = result.candidates?.[0];
+
+                    if (candidate && candidate.content?.parts?.[0]?.text) {
+                        const replyText = candidate.content.parts[0].text;
+                        appendChatMessage(replyText, 'ai');
+                        responseReceived = true;
+                    } else {
+                        throw new Error("Struktur respon tidak valid.");
+                    }
+
+                } catch (error) {
+                    console.error("Gemini API connection failed:", error.message || error);
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        appendChatMessage("Koneksi asisten WAJA AI sedang terhambat. Untuk pertolongan pertama, pastikan korban berada di area aman, panggil bantuan ambulans, dan jangan sembarangan memindahkan korban jika diduga cedera leher atau tulang belakang.", 'ai');
+                    }
+                }
+            }
+
+            typingIndicator.classList.add('hidden');
+        }
+
+        // Default Mock Data
+        function showReportsMock() {
+            const db = getReportsFromDb();
+            if (db.length === 0) {
+                const sampleReports = [
+                    {
+                        id: 'WAJA-1715000000',
+                        locationAddress: 'Jl. Jenderal Sudirman No.15, RT.3/RW.3, Gelora, Kecamatan Tanah Abang, Kota Jakarta Pusat, DKI Jakarta 10270\n\n[Google Maps: https://www.google.com/maps?q=-6.212000,106.801000]',
+                        description: 'Simulasi kejadian: Tabrakan ringan pengendara motor. Satu orang mengalami luka gores ringan di bagian siku lengan kanan.',
+                        agencies: 'PMI, Ambulance, Polisi',
+                        photo: 'https://placehold.co/600x400/f1f5f9/94a3b8?text=Simulasi+Insiden+Ringan',
+                        timestamp: new Date(Date.now() - 3600000).toLocaleString('id-ID'),
+                        status: 'Menunggu Respon'
+                    }
+                ];
+                saveReportsToDb(sampleReports);
+            }
+        }
+
+        // --- APP INITIALIZATION ---
+        window.onload = function() {
+            showReportsMock();
+            renderStatusTracker();
+            renderAdminDashboard();
+            initializeLeafletMap();
+
+            // Auto Sync Simulator (Simulasi web-socket local storage)
+            setInterval(() => {
+                renderStatusTracker();
+                if (activeRole === 'admin') {
+                    renderAdminDashboard();
+                }
+            }, 2500);
+
+            safeCreateIcons();
+        };
+
+    </script>
+</body>
+</html>
